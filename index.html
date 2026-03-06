@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Invoice Reconciliation Agent</title>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet"/>
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    :root{
+      --bg:#07090e;--surface:#0f1219;--surface2:#161b24;--surface3:#1c2230;
+      --border:#1e2635;--border2:#263040;
+      --accent:#00e5a0;--accent-dim:rgba(0,229,160,0.12);
+      --warn:#ffb84d;--danger:#ff4d6d;--blue:#3db8ff;
+      --text:#dde3f0;--muted:#4e5a72;--muted2:#7a8699;
+    }
+    html{scroll-behavior:smooth}
+    body{font-family:'DM Mono',monospace;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
+
+    /* Animated grid bg */
+    body::before{content:'';position:fixed;inset:0;
+      background-image:linear-gradient(rgba(0,229,160,0.02) 1px,transparent 1px),
+      linear-gradient(90deg,rgba(0,229,160,0.02) 1px,transparent 1px);
+      background-size:48px 48px;pointer-events:none;z-index:0}
+    /* Glow blobs */
+    body::after{content:'';position:fixed;inset:0;
+      background:radial-gradient(ellipse 60% 40% at 20% 10%,rgba(0,229,160,0.04) 0%,transparent 60%),
+      radial-gradient(ellipse 50% 30% at 80% 80%,rgba(61,184,255,0.04) 0%,transparent 60%);
+      pointer-events:none;z-index:0}
+
+    .page{max-width:1080px;margin:0 auto;padding:0 24px 80px;position:relative;z-index:1}
+
+    /* ── HEADER ── */
+    header{padding:32px 0 28px;border-bottom:1px solid var(--border);margin-bottom:40px}
+    .hdr{display:flex;align-items:center;gap:16px}
+    .hdr-logo{width:50px;height:50px;background:linear-gradient(135deg,#00e5a0,#00c077);border-radius:14px;
+      display:flex;align-items:center;justify-content:center;font-size:22px;
+      box-shadow:0 0 30px rgba(0,229,160,0.35);flex-shrink:0}
+    .hdr-text h1{font-family:'Syne',sans-serif;font-size:1.55rem;font-weight:800;letter-spacing:-.02em}
+    .hdr-text p{font-size:.68rem;color:var(--muted2);margin-top:3px;letter-spacing:.1em;text-transform:uppercase}
+    .hdr-status{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:.65rem;
+      color:var(--accent);letter-spacing:.12em;text-transform:uppercase}
+    .hdr-status::before{content:'';width:7px;height:7px;background:var(--accent);border-radius:50%;
+      animation:blink 2s infinite}
+    @keyframes blink{0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(0,229,160,.5)}50%{opacity:.7;box-shadow:0 0 0 5px rgba(0,229,160,0)}}
+
+    /* ── SECTION LABEL ── */
+    .sec-lbl{font-size:.6rem;letter-spacing:.25em;text-transform:uppercase;color:var(--muted);margin-bottom:14px;display:flex;align-items:center;gap:10px}
+    .sec-lbl::after{content:'';flex:1;height:1px;background:var(--border)}
+
+    /* ── UPLOAD ZONE ── */
+    .upload-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:18px}
+    @media(max-width:620px){.upload-grid{grid-template-columns:1fr}}
+
+    .ucard{background:var(--surface);border:1.5px solid var(--border);border-radius:18px;
+      padding:24px;transition:border-color .25s,box-shadow .25s;position:relative;overflow:hidden}
+    .ucard::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;
+      background:linear-gradient(90deg,transparent,var(--accent),transparent);opacity:0;transition:opacity .3s}
+    .ucard:hover{border-color:var(--border2)}
+    .ucard.active-drag{border-color:var(--accent)!important;background:rgba(0,229,160,0.04);box-shadow:0 0 40px rgba(0,229,160,.12)}
+    .ucard.active-drag::before,.ucard.has-file::before{opacity:1}
+    .ucard.has-file{border-color:rgba(0,229,160,.3)}
+
+    .ucard-tag{font-size:.58rem;letter-spacing:.2em;text-transform:uppercase;color:var(--accent);margin-bottom:10px}
+    .ucard-title{font-family:'Syne',sans-serif;font-size:.95rem;font-weight:700;margin-bottom:4px}
+    .ucard-sub{font-size:.68rem;color:var(--muted2);margin-bottom:18px}
+
+    /* Drop zone */
+    .dropzone{border:1.5px dashed var(--border2);border-radius:12px;padding:32px 16px;
+      text-align:center;cursor:pointer;transition:all .2s;position:relative}
+    .dropzone:hover{border-color:var(--accent);background:var(--accent-dim)}
+    .dz-icon{font-size:2rem;margin-bottom:10px;opacity:.5;transition:opacity .2s}
+    .dropzone:hover .dz-icon{opacity:.9}
+    .dz-text{font-size:.72rem;color:var(--muted2);line-height:1.7}
+    .dz-text span{color:var(--accent);cursor:pointer;text-decoration:underline;text-decoration-color:rgba(0,229,160,.3)}
+    .dz-formats{margin-top:6px;font-size:.6rem;color:var(--muted);letter-spacing:.08em}
+    input[type="file"]{display:none}
+
+    /* File preview */
+    .file-preview{display:none;margin-top:14px}
+    .file-preview.show{display:block;animation:slideDown .25s ease}
+    @keyframes slideDown{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
+    .fp-inner{display:flex;align-items:center;gap:12px;padding:12px 14px;
+      background:rgba(0,229,160,.07);border:1px solid rgba(0,229,160,.2);border-radius:10px}
+    .fp-icon{font-size:1.5rem;flex-shrink:0}
+    .fp-info{flex:1;min-width:0}
+    .fp-name{font-size:.72rem;font-weight:500;color:var(--accent);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .fp-size{font-size:.6rem;color:var(--muted2);margin-top:2px}
+    .fp-change{background:none;border:1px solid var(--border2);border-radius:6px;
+      color:var(--muted2);font-family:'DM Mono',monospace;font-size:.62rem;
+      padding:4px 10px;cursor:pointer;transition:all .2s;white-space:nowrap}
+    .fp-change:hover{border-color:var(--accent);color:var(--accent)}
+    .fp-remove{background:none;border:none;color:var(--muted);cursor:pointer;font-size:1rem;padding:4px;
+      transition:color .2s;flex-shrink:0}
+    .fp-remove:hover{color:var(--danger)}
+
+    /* Upload progress bar */
+    .fp-bar{height:2px;background:var(--border);border-radius:2px;margin-top:8px;overflow:hidden;display:none}
+    .fp-bar.show{display:block}
+    .fp-bar-fill{height:100%;background:var(--accent);width:0;transition:width .4s ease;border-radius:2px}
+
+    /* ── CONTROLS ── */
+    .controls{display:flex;gap:12px;margin-bottom:40px;flex-wrap:wrap}
+    .btn-run{flex:1;min-width:200px;padding:16px 24px;
+      background:linear-gradient(135deg,var(--accent),#00c077);border:none;border-radius:12px;
+      font-family:'Syne',sans-serif;font-size:.95rem;font-weight:700;color:#07090e;
+      cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;
+      transition:all .2s;box-shadow:0 4px 28px rgba(0,229,160,.25);letter-spacing:.03em}
+    .btn-run:hover{transform:translateY(-2px);box-shadow:0 8px 36px rgba(0,229,160,.35)}
+    .btn-run:active{transform:translateY(0)}
+    .btn-run:disabled{opacity:.35;cursor:not-allowed;transform:none;box-shadow:none}
+    .btn-run.loading{background:var(--surface2);color:var(--accent);border:1px solid rgba(0,229,160,.3)}
+
+    .btn-reset{padding:16px 20px;background:var(--surface);border:1.5px solid var(--border2);border-radius:12px;
+      font-family:'DM Mono',monospace;font-size:.72rem;color:var(--muted2);cursor:pointer;
+      display:flex;align-items:center;gap:8px;transition:all .2s;white-space:nowrap}
+    .btn-reset:hover{border-color:var(--danger);color:var(--danger)}
+
+    .spinner{width:18px;height:18px;border:2px solid rgba(0,229,160,.25);border-top-color:var(--accent);
+      border-radius:50%;animation:spin .75s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+
+    /* ── ERROR ── */
+    .errbox{background:rgba(255,77,109,.07);border:1px solid rgba(255,77,109,.3);border-radius:10px;
+      padding:14px 18px;color:var(--danger);font-size:.75rem;display:none;
+      margin-bottom:18px;align-items:flex-start;gap:10px;line-height:1.6}
+    .errbox.show{display:flex;animation:fadeIn .25s ease}
+
+    /* ── RESULTS ── */
+    #results{display:none}
+    #results.show{display:block;animation:fadeUp .4s ease}
+    @keyframes fadeUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
+    @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+
+    /* Stats */
+    .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:28px}
+    @media(max-width:600px){.stats{grid-template-columns:repeat(2,1fr)}}
+    .stat{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px;
+      position:relative;overflow:hidden;transition:transform .2s}
+    .stat:hover{transform:translateY(-2px)}
+    .stat::after{content:'';position:absolute;bottom:0;left:0;right:0;height:2px}
+    .stat.g::after{background:var(--accent)}.stat.o::after{background:var(--warn)}
+    .stat.r::after{background:var(--danger)}.stat.b::after{background:var(--blue)}
+    .stat-val{font-family:'Syne',sans-serif;font-size:2rem;font-weight:800;line-height:1;margin-bottom:5px}
+    .stat.g .stat-val{color:var(--accent)}.stat.o .stat-val{color:var(--warn)}
+    .stat.r .stat-val{color:var(--danger)}.stat.b .stat-val{color:var(--blue)}
+    .stat-lbl{font-size:.6rem;color:var(--muted2);letter-spacing:.12em;text-transform:uppercase}
+
+    /* Meta */
+    .meta{display:flex;gap:20px;flex-wrap:wrap;margin-bottom:22px;
+      background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 18px}
+    .meta-item{font-size:.68rem;color:var(--muted2);display:flex;gap:6px;align-items:center}
+    .meta-item strong{color:var(--text)}
+    .meta-item::before{content:'·';color:var(--border2)}
+    .meta-item:first-child::before{display:none}
+
+    /* Tabs */
+    .tabs{display:flex;gap:4px;background:var(--surface);border:1px solid var(--border);
+      border-radius:10px;padding:4px;margin-bottom:16px;width:fit-content;flex-wrap:wrap}
+    .tab{padding:8px 18px;border:none;border-radius:7px;background:none;
+      color:var(--muted2);font-family:'DM Mono',monospace;font-size:.68rem;
+      cursor:pointer;transition:all .2s;display:flex;align-items:center;gap:7px;white-space:nowrap}
+    .tab:hover{color:var(--text)}
+    .tab.on{background:var(--surface2);color:var(--text)}
+    .tab-n{background:var(--surface2);border-radius:4px;padding:1px 7px;font-size:.6rem;color:var(--muted2)}
+    .tab.on .tab-n{background:rgba(0,229,160,.15);color:var(--accent)}
+
+    /* Table */
+    .tbl-wrap{background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden;overflow-x:auto}
+    table{width:100%;border-collapse:collapse;font-size:.72rem}
+    thead{background:var(--surface2);border-bottom:1px solid var(--border)}
+    th{padding:11px 16px;text-align:left;font-size:.6rem;letter-spacing:.15em;text-transform:uppercase;
+      color:var(--muted2);font-weight:500;white-space:nowrap}
+    td{padding:11px 16px;border-bottom:1px solid rgba(255,255,255,.03);color:var(--text)}
+    tr:last-child td{border-bottom:none}
+    tr:hover td{background:rgba(255,255,255,.02)}
+
+    .badge{display:inline-flex;align-items:center;padding:3px 10px;border-radius:20px;
+      font-size:.58rem;font-weight:600;letter-spacing:.06em;gap:4px}
+    .badge.m{background:rgba(0,229,160,.12);color:var(--accent)}
+    .badge.d{background:rgba(255,184,77,.12);color:var(--warn)}
+    .badge.x{background:rgba(255,77,109,.1);color:var(--danger)}
+    .diff-p{color:var(--danger);font-weight:600}
+    .diff-n{color:var(--accent);font-weight:600}
+    .diff-z{color:var(--muted2)}
+
+    .empty{padding:52px;text-align:center;color:var(--muted2);font-size:.75rem}
+    .empty-icon{font-size:2.5rem;margin-bottom:12px;opacity:.5}
+
+    /* New run banner */
+    .rerun-banner{background:rgba(0,229,160,.06);border:1px solid rgba(0,229,160,.2);border-radius:12px;
+      padding:14px 20px;display:flex;align-items:center;gap:14px;margin-bottom:28px;flex-wrap:wrap}
+    .rerun-text{flex:1;font-size:.72rem;color:var(--muted2);line-height:1.6}
+    .rerun-text strong{color:var(--accent)}
+    .btn-newrun{padding:9px 18px;background:var(--accent);border:none;border-radius:8px;
+      font-family:'Syne',sans-serif;font-weight:700;font-size:.72rem;color:#07090e;
+      cursor:pointer;transition:all .2s;white-space:nowrap}
+    .btn-newrun:hover{background:#00c077;transform:translateY(-1px)}
+  </style>
+</head>
+<body>
+<div class="page">
+
+  <!-- HEADER -->
+  <header>
+    <div class="hdr">
+      <div class="hdr-logo">⚡</div>
+      <div class="hdr-text">
+        <h1>Invoice Reconciliation Agent</h1>
+        <p>Upload · Match · Detect Discrepancies</p>
+      </div>
+      <div class="hdr-status">Agent Ready</div>
+    </div>
+  </header>
+
+  <!-- UPLOAD SECTION -->
+  <div id="uploadSection">
+    <div class="sec-lbl">// Upload Your Invoice Files</div>
+
+    <div class="upload-grid">
+
+      <!-- SOURCE 1 -->
+      <div class="ucard" id="card1"
+        ondragover="onDragOver(event,'card1')" ondragleave="onDragLeave('card1')" ondrop="onDrop(event,'inp1','card1','prev1','n1','s1')">
+        <div class="ucard-tag">SOURCE FILE 01</div>
+        <div class="ucard-title">Primary Invoice File</div>
+        <div class="ucard-sub">Your internal records / ERP export</div>
+        <input type="file" id="inp1" accept=".csv,.xlsx,.xls,.json"
+          onchange="onFileSelected(this,'prev1','n1','s1','card1')"/>
+        <div class="dropzone" id="dz1" onclick="triggerInput('inp1','prev1')">
+          <div class="dz-icon">📂</div>
+          <div class="dz-text">Drop file here or <span>browse to upload</span></div>
+          <div class="dz-formats">CSV &nbsp;·&nbsp; XLSX &nbsp;·&nbsp; XLS &nbsp;·&nbsp; JSON</div>
+        </div>
+        <div class="file-preview" id="prev1">
+          <div class="fp-inner">
+            <div class="fp-icon">📄</div>
+            <div class="fp-info">
+              <div class="fp-name" id="n1">—</div>
+              <div class="fp-size" id="s1">—</div>
+            </div>
+            <button class="fp-change" onclick="changeFile('inp1','prev1','card1')">↩ Change</button>
+            <button class="fp-remove" onclick="removeFile('inp1','prev1','card1')" title="Remove">✕</button>
+          </div>
+          <div class="fp-bar" id="bar1"><div class="fp-bar-fill" id="bfill1"></div></div>
+        </div>
+      </div>
+
+      <!-- SOURCE 2 -->
+      <div class="ucard" id="card2"
+        ondragover="onDragOver(event,'card2')" ondragleave="onDragLeave('card2')" ondrop="onDrop(event,'inp2','card2','prev2','n2','s2')">
+        <div class="ucard-tag">SOURCE FILE 02</div>
+        <div class="ucard-title">Comparison Invoice File</div>
+        <div class="ucard-sub">Vendor invoice / bank statement / third-party</div>
+        <input type="file" id="inp2" accept=".csv,.xlsx,.xls,.json"
+          onchange="onFileSelected(this,'prev2','n2','s2','card2')"/>
+        <div class="dropzone" id="dz2" onclick="triggerInput('inp2','prev2')">
+          <div class="dz-icon">📂</div>
+          <div class="dz-text">Drop file here or <span>browse to upload</span></div>
+          <div class="dz-formats">CSV &nbsp;·&nbsp; XLSX &nbsp;·&nbsp; XLS &nbsp;·&nbsp; JSON</div>
+        </div>
+        <div class="file-preview" id="prev2">
+          <div class="fp-inner">
+            <div class="fp-icon">📄</div>
+            <div class="fp-info">
+              <div class="fp-name" id="n2">—</div>
+              <div class="fp-size" id="s2">—</div>
+            </div>
+            <button class="fp-change" onclick="changeFile('inp2','prev2','card2')">↩ Change</button>
+            <button class="fp-remove" onclick="removeFile('inp2','prev2','card2')" title="Remove">✕</button>
+          </div>
+          <div class="fp-bar" id="bar2"><div class="fp-bar-fill" id="bfill2"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Error -->
+    <div class="errbox" id="errBox">
+      <span style="font-size:1.1rem;flex-shrink:0">⚠️</span>
+      <span id="errMsg"></span>
+    </div>
+
+    <!-- Controls -->
+    <div class="controls">
+      <button class="btn-run" id="runBtn" onclick="runReconciliation()">
+        <span id="runIcon">⚡</span>
+        <span id="runTxt">Run Reconciliation Agent</span>
+      </button>
+      <button class="btn-reset" onclick="fullReset()" title="Clear all and start fresh">
+        🗑 Clear All &amp; Reset
+      </button>
+    </div>
+  </div>
+
+  <!-- RESULTS -->
+  <div id="results">
+    <!-- Re-run banner -->
+    <div class="rerun-banner">
+      <div style="font-size:1.5rem">✅</div>
+      <div class="rerun-text">
+        Reconciliation complete! <strong>Want to run again with different files?</strong><br>
+        Use the <em>Change</em> buttons above to swap individual files, or click Reset to start fresh.
+      </div>
+      <button class="btn-newrun" onclick="scrollToUpload()">⬆ Upload New Files</button>
+      <button class="btn-newrun" style="background:var(--surface2);color:var(--accent);border:1px solid rgba(0,229,160,.3)" onclick="fullReset()">↺ Full Reset</button>
+    </div>
+
+    <div class="sec-lbl">// Reconciliation Report</div>
+
+    <div class="stats">
+      <div class="stat g"><div class="stat-val" id="sv1">—</div><div class="stat-lbl">Matched</div></div>
+      <div class="stat o"><div class="stat-val" id="sv2">—</div><div class="stat-lbl">Discrepancies</div></div>
+      <div class="stat r"><div class="stat-val" id="sv3">—</div><div class="stat-lbl">Unmatched</div></div>
+      <div class="stat b"><div class="stat-val" id="sv4">—</div><div class="stat-lbl">Match Rate</div></div>
+    </div>
+
+    <div class="meta" id="metaBar"></div>
+
+    <div class="tabs">
+      <button class="tab on" id="tb-matched" onclick="showTab('matched')">✅ Matched <span class="tab-n" id="tn-matched">0</span></button>
+      <button class="tab" id="tb-discrepancies" onclick="showTab('discrepancies')">⚠️ Discrepancies <span class="tab-n" id="tn-discrepancies">0</span></button>
+      <button class="tab" id="tb-unmatched_source1" onclick="showTab('unmatched_source1')">❌ Missing in S2 <span class="tab-n" id="tn-unmatched_source1">0</span></button>
+      <button class="tab" id="tb-unmatched_source2" onclick="showTab('unmatched_source2')">❌ Missing in S1 <span class="tab-n" id="tn-unmatched_source2">0</span></button>
+    </div>
+
+    <div id="tblArea"></div>
+  </div>
+
+</div>
+<script>
+  let data = null;
+  let activeTab = 'matched';
+
+  /* ── FILE UTILS ── */
+  function fmtSize(b){
+    if(b<1024) return b+' B';
+    if(b<1048576) return (b/1024).toFixed(1)+' KB';
+    return (b/1048576).toFixed(1)+' MB';
+  }
+
+  function triggerInput(inpId, prevId){
+    // Only open picker if no file yet
+    const prev = document.getElementById(prevId);
+    if(!prev.classList.contains('show'))
+      document.getElementById(inpId).click();
+  }
+
+  function onFileSelected(input, prevId, nameId, sizeId, cardId){
+    const file = input.files[0];
+    if(!file) return;
+    document.getElementById(nameId).textContent = file.name;
+    document.getElementById(sizeId).textContent = fmtSize(file.size);
+    document.getElementById(prevId).classList.add('show');
+    document.getElementById(cardId).classList.add('has-file');
+    // animate bar
+    const barNum = prevId.slice(-1);
+    const bar = document.getElementById('bar'+barNum);
+    const fill = document.getElementById('bfill'+barNum);
+    if(bar && fill){
+      bar.classList.add('show'); fill.style.width='0';
+      setTimeout(()=>{ fill.style.width='100%'; },50);
+      setTimeout(()=>{ bar.classList.remove('show'); fill.style.width='0'; },700);
+    }
+    hideErr();
+  }
+
+  function changeFile(inpId, prevId, cardId){
+    // Reset just this slot and open picker
+    const inp = document.getElementById(inpId);
+    inp.value = '';
+    document.getElementById(prevId).classList.remove('show');
+    document.getElementById(cardId).classList.remove('has-file');
+    setTimeout(()=>{ inp.click(); },50);
+  }
+
+  function removeFile(inpId, prevId, cardId){
+    document.getElementById(inpId).value='';
+    document.getElementById(prevId).classList.remove('show');
+    document.getElementById(cardId).classList.remove('has-file');
+    hideErr();
+  }
+
+  /* ── DRAG & DROP ── */
+  function onDragOver(e, cardId){ e.preventDefault(); document.getElementById(cardId).classList.add('active-drag'); }
+  function onDragLeave(cardId){ document.getElementById(cardId).classList.remove('active-drag'); }
+  function onDrop(e, inpId, cardId, prevId, nameId, sizeId){
+    e.preventDefault();
+    document.getElementById(cardId).classList.remove('active-drag');
+    const file = e.dataTransfer.files[0];
+    if(!file) return;
+    const dt = new DataTransfer(); dt.items.add(file);
+    const inp = document.getElementById(inpId);
+    inp.files = dt.files;
+    onFileSelected(inp, prevId, nameId, sizeId, cardId);
+  }
+
+  /* ── ERRORS ── */
+  function showErr(msg){
+    const b=document.getElementById('errBox');
+    document.getElementById('errMsg').textContent=msg;
+    b.classList.add('show');
+  }
+  function hideErr(){ document.getElementById('errBox').classList.remove('show'); }
+
+  /* ── RESET ── */
+  function fullReset(){
+    ['inp1','inp2'].forEach(id=>{ document.getElementById(id).value=''; });
+    ['prev1','prev2'].forEach(id=>{ document.getElementById(id).classList.remove('show'); });
+    ['card1','card2'].forEach(id=>{ document.getElementById(id).classList.remove('has-file'); });
+    document.getElementById('results').classList.remove('show');
+    document.getElementById('results').style.display='none';
+    data=null; hideErr();
+    window.scrollTo({top:0,behavior:'smooth'});
+  }
+
+  function scrollToUpload(){
+    document.getElementById('uploadSection').scrollIntoView({behavior:'smooth'});
+  }
+
+  /* ── RUN ── */
+  async function runReconciliation(){
+    hideErr();
+    const f1 = document.getElementById('inp1').files[0];
+    const f2 = document.getElementById('inp2').files[0];
+    if(!f1||!f2){ showErr('Please upload both invoice files before running reconciliation.'); return; }
+
+    const btn=document.getElementById('runBtn');
+    btn.disabled=true; btn.classList.add('loading');
+    document.getElementById('runIcon').innerHTML='<div class="spinner"></div>';
+    document.getElementById('runTxt').textContent='Agent Processing…';
+
+    const fd=new FormData(); fd.append('file1',f1); fd.append('file2',f2);
+
+    try{
+      const res = await fetch('/upload',{method:'POST',body:fd});
+      const json = await res.json();
+      if(json.error){ showErr(json.error); return; }
+      data=json;
+      renderResults(json);
+      document.getElementById('results').classList.add('show');
+      setTimeout(()=>document.getElementById('results').scrollIntoView({behavior:'smooth'}),100);
+    }catch(err){
+      showErr('Connection error. Make sure the Flask server is running on port 5000.');
+    }finally{
+      btn.disabled=false; btn.classList.remove('loading');
+      document.getElementById('runIcon').textContent='⚡';
+      document.getElementById('runTxt').textContent='Run Reconciliation Agent';
+    }
+  }
+
+  /* ── RENDER ── */
+  function renderResults(d){
+    const s=d.summary;
+    document.getElementById('sv1').textContent=s.matched;
+    document.getElementById('sv2').textContent=s.discrepancies;
+    document.getElementById('sv3').textContent=s.unmatched_source1+s.unmatched_source2;
+    document.getElementById('sv4').textContent=s.reconciliation_rate+'%';
+
+    ['matched','discrepancies','unmatched_source1','unmatched_source2'].forEach(k=>{
+      document.getElementById('tn-'+k).textContent=d[k].length;
+    });
+
+    document.getElementById('metaBar').innerHTML=`
+      <div class="meta-item">Key: <strong>${s.key_column_used}</strong></div>
+      <div class="meta-item">Amount: <strong>${s.amount_column_used}</strong></div>
+      <div class="meta-item">Source 1: <strong>${s.total_source1} rows</strong></div>
+      <div class="meta-item">Source 2: <strong>${s.total_source2} rows</strong></div>
+      <div class="meta-item">Run at: <strong>${s.timestamp}</strong></div>
+    `;
+    showTab('matched');
+  }
+
+  function showTab(tab){
+    activeTab=tab;
+    document.querySelectorAll('.tab').forEach(b=>b.classList.remove('on'));
+    document.getElementById('tb-'+tab).classList.add('on');
+    renderTable(tab);
+  }
+
+  function renderTable(tab){
+    if(!data) return;
+    const records=data[tab];
+    const area=document.getElementById('tblArea');
+    if(!records||!records.length){
+      area.innerHTML=`<div class="tbl-wrap"><div class="empty"><div class="empty-icon">✨</div>No records in this category</div></div>`;
+      return;
+    }
+    const keys=Object.keys(records[0]);
+    const badgeCls=tab==='matched'?'m':tab==='discrepancies'?'d':'x';
+    const badgeTxt=tab==='matched'?'✅ MATCHED':tab==='discrepancies'?'⚠ DISCREPANCY':'❌ MISSING';
+
+    const rows=records.map((r,i)=>{
+      const cells=keys.map(k=>{
+        if(k==='difference'&&r[k]!==undefined){
+          const v=r[k]; const cls=v>0?'diff-p':v<0?'diff-n':'diff-z';
+          return `<td class="${cls}">${v>0?'+':''}${v}</td>`;
+        }
+        return `<td>${r[k]!==undefined&&r[k]!==null?r[k]:'—'}</td>`;
+      }).join('');
+      return `<tr style="animation:rowIn .3s ease ${i*0.04}s both"><td><span class="badge ${badgeCls}">${badgeTxt}</span></td>${cells}</tr>`;
+    }).join('');
+
+    const ths=['Status',...keys].map(k=>`<th>${k.replace(/_/g,' ')}</th>`).join('');
+    area.innerHTML=`<div class="tbl-wrap"><table><thead><tr>${ths}</tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
+</script>
+<style>
+  @keyframes rowIn{from{opacity:0;transform:translateX(-10px)}to{opacity:1;transform:translateX(0)}}
+</style>
+</body>
+</html>
